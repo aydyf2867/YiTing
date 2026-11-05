@@ -10,14 +10,14 @@ interface MediaItemDao {
     @Upsert
     suspend fun upsertAll(items: List<MediaItemEntity>)
 
-    @Query("SELECT * FROM media_items ORDER BY title")
+    @Query("SELECT * FROM media_items ORDER BY title COLLATE NOCASE")
     fun observeAll(): Flow<List<MediaItemEntity>>
 
-    @Query("SELECT * FROM media_items WHERE category = :category ORDER BY title")
+    @Query("SELECT * FROM media_items WHERE category = :category ORDER BY title COLLATE NOCASE")
     fun observeByCategory(category: String): Flow<List<MediaItemEntity>>
 
-    @Query("DELETE FROM media_items")
-    suspend fun clear()
+    @Query("DELETE FROM media_items WHERE source = :source")
+    suspend fun deleteBySource(source: String)
 }
 
 @Dao
