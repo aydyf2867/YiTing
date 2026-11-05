@@ -1,4 +1,4 @@
-package com.yiting.core.ui
+package com.yiting.core.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
