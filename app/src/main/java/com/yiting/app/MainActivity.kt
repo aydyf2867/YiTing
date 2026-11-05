@@ -1,23 +1,24 @@
 package com.yiting.app
 
+import android.app.Activity
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,114 +26,93 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
-import com.yiting.app.core.ui.YiTingTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yiting.app.home.HomeScreen
+import com.yiting.app.home.HomeViewModel
+import com.yiting.core.ui.theme.YiTingTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             YiTingTheme {
-                MainScreen()
+                val viewModel: HomeViewModel = viewModel()
+                MainScreen(viewModel)
             }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class TabItem(
+    val label: String,
+    val icon: ImageVector
+)
+
 @Composable
-fun MainScreen() {
-    var currentTab by remember { mutableStateOf(0) }
-    val tabs = listOf("听·广播", "听书", "听戏")
+fun MainScreen(viewModel: HomeViewModel) {
+    val context = LocalContext.current
+    var selectedTab by remember { mutableStateOf(0) }
+    var lastBackPressAt by remember { mutableStateOf(0L) }
+
+    BackHandler {
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressAt < 2000) {
+            (context as? Activity)?.finish()
+        } else {
+            lastBackPressAt = now
+            Toast.makeText(context, "再按一次返回键退出颐听", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val tabs = listOf(
+        TabItem("听·广播", Icons.Filled.Radio),
+        TabItem("听书", Icons.Filled.Headphones),
+        TabItem("听戏", Icons.Filled.LibraryMusic)
+    )
+
+    val recentPlays = viewModel.recentPlays.collectAsState().value
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "颐听",
-                        fontSize = 28.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            )
-        },
         bottomBar = {
             NavigationBar {
-                tabs.forEachIndexed { index, label ->
+                tabs.forEachIndexed { index, tab ->
                     NavigationBarItem(
-                        selected = currentTab == index,
-                        onClick = { currentTab = index },
-                        label = { Text(text = label, fontSize = 18.sp) },
-                        icon = {}
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label, fontSize = 16.sp) }
                     )
                 }
             }
         }
-    ) { padding ->
-        Column(
+    ) { innerPadding ->
+        Box(
             modifier = Modifier
-                .padding(padding)
                 .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(innerPadding)
         ) {
-            when (currentTab) {
-                0 -> {
-                    Text(
-                        text = "最近在听",
-                        fontSize = 24.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Card(modifier = Modifier.fillMaxSize()) {
-                        Column(
-                            modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Spacer(modifier = Modifier.height(32.dp))
-                            Text(
-                                text = "先去添加一些戏曲或评书吧",
-                                fontSize = 20.sp
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(onClick = { /* T04 实现 */ }) {
-                                Text(text = "去听听戏", fontSize = 20.sp)
-                            }
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Button(onClick = { /* T05 实现 */ }) {
-                                Text(text = "去看书", fontSize = 20.sp)
-                            }
-                        }
-                    }
-                }
-                1 -> {
-                    Text(
-                        text = "听书",
-                        fontSize = 24.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "还没有有声书，T05 任务后可导入",
-                        fontSize = 20.sp
-                    )
-                }
-                2 -> {
-                    Text(
-                        text = "听戏",
-                        fontSize = 24.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "还没有戏曲文件，T04 任务后可播放",
-                        fontSize = 20.sp
-                    )
-                }
+            when (selectedTab) {
+                0 -> HomeScreen(recentPlays = recentPlays)
+                1 -> PlaceholderScreen("听书 · 内容即将上线")
+                else -> PlaceholderScreen("听戏 · 内容即将上线")
             }
         }
+    }
+}
+
+@Composable
+fun PlaceholderScreen(text: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 24.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
