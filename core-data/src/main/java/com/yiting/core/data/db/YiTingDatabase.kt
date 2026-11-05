@@ -18,7 +18,6 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     exportSchema = false
 )
 abstract class YiTingDatabase : RoomDatabase() {
-
     abstract fun mediaItemDao(): MediaItemDao
     abstract fun playRecordDao(): PlayRecordDao
     abstract fun favoriteDao(): FavoriteDao
@@ -32,7 +31,7 @@ abstract class YiTingDatabase : RoomDatabase() {
                     CREATE TABLE IF NOT EXISTS `reading_progress` (
                         `documentUri` TEXT NOT NULL,
                         `title` TEXT NOT NULL,
-                        `characterOffset` INTEGER NOT NULL,
+                        `scrollFraction` REAL NOT NULL,
                         `updatedAtMs` INTEGER NOT NULL,
                         PRIMARY KEY(`documentUri`)
                     )
