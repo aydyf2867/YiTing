@@ -3,6 +3,7 @@ package com.yiting.app
 import android.app.Activity
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -34,24 +35,29 @@ import com.yiting.app.home.HomeScreen
 import com.yiting.app.home.HomeViewModel
 import com.yiting.core.ui.theme.YiTingTheme
 
-class MainActivity : androidx.activity.ComponentActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             YiTingTheme {
-                MainScreen(viewModel())
+                val viewModel: HomeViewModel = viewModel()
+                MainScreen(viewModel)
             }
         }
     }
 }
 
-private data class TabItem(val label: String, val icon: ImageVector)
+private data class TabItem(
+    val label: String,
+    val icon: ImageVector
+)
 
 @Composable
 fun MainScreen(viewModel: HomeViewModel) {
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) }
     var lastBackPressAt by remember { mutableStateOf(0L) }
+
     BackHandler {
         val now = System.currentTimeMillis()
         if (now - lastBackPressAt < 2_000) {
@@ -67,22 +73,29 @@ fun MainScreen(viewModel: HomeViewModel) {
         TabItem("听戏", Icons.Filled.LibraryMusic),
         TabItem("听书", Icons.Filled.Headphones)
     )
+
     val recentPlays by viewModel.recentPlays.collectAsState()
     val readingProgress by viewModel.readingProgress.collectAsState()
 
-    Scaffold(bottomBar = {
-        NavigationBar {
-            tabs.forEachIndexed { index, tab ->
-                NavigationBarItem(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    icon = { Icon(tab.icon, contentDescription = tab.label) },
-                    label = { Text(tab.label, fontSize = 20.sp) }
-                )
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                tabs.forEachIndexed { index, tab ->
+                    NavigationBarItem(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label, fontSize = 20.sp) }
+                    )
+                }
             }
         }
-    }) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
             when (selectedTab) {
                 0 -> HomeScreen(
                     recentPlays = recentPlays,
@@ -90,8 +103,9 @@ fun MainScreen(viewModel: HomeViewModel) {
                     loadReadingProgress = viewModel::getReadingProgress,
                     saveReadingProgress = viewModel::saveReadingProgress
                 )
-                1 -> PlaceholderScreen("本地戏曲列表将在 T02 完成")
-                else -> PlaceholderScreen("有声书功能将在后续版本上线")
+                1 -> PlaceholderScreen("听戏功能待 T03")
+                2 -> PlaceholderScreen("听书功能待 T03")
+                else -> PlaceholderScreen("功能待开发")
             }
         }
     }
@@ -99,7 +113,14 @@ fun MainScreen(viewModel: HomeViewModel) {
 
 @Composable
 fun PlaceholderScreen(text: String) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, fontSize = 24.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            fontSize = 24.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
