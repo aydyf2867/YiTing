@@ -1,6 +1,5 @@
 package com.yiting.app.home
 
-import android.icu.text.CharsetDetector
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ibm.icu.text.CharsetDetector
 import com.yiting.core.data.db.PlayRecordEntity
 import com.yiting.core.ui.component.YiListItem
 import kotlinx.coroutines.Dispatchers
@@ -262,21 +262,18 @@ private fun decodeTxt(bytes: ByteArray): String {
     )
 
     for ((bom, encoding) in bomEncodings) {
-        if (bytes.startsWith(bom)) {
-            return decodeWithCharset(
-                bytes = bytes,
-                offset = bom.size,
-                charsetName = encoding
+        if (hasPrefix(bytes, bom)) {
+            return String(
+                bytes,
+                bom.size,
+                bytes.size - bom.size,
+                Charset.forName(encoding)
             )
         }
     }
 
     detectUtf16WithoutBom(bytes)?.let { encoding ->
-        return decodeWithCharset(
-            bytes = bytes,
-            offset = 0,
-            charsetName = encoding
-        )
+        return String(bytes, Charset.forName(encoding))
     }
 
     decodeStrictly(bytes, Charsets.UTF_8)?.let { return it }
@@ -284,36 +281,24 @@ private fun decodeTxt(bytes: ByteArray): String {
     val detectedText = runCatching {
         val detector = CharsetDetector()
         detector.setText(bytes)
-
-        detector.detect()
-            ?.getString()
+        detector.detect()?.getString()
     }.getOrNull()
 
     if (detectedText != null) {
         return detectedText
     }
 
-    val fallbackEncodings = listOf(
-        "GB18030",
-        "Big5",
-        "Shift_JIS",
-        "EUC-JP",
-        "EUC-KR",
-        "windows-1252",
-        "ISO-8859-1"
-    )
+    return String(bytes, Charsets.UTF_8)
+}
 
-    for (encoding in fallbackEncodings) {
-        val decoded = runCatching {
-            Charset.forName(encoding).decode(ByteBuffer.wrap(bytes)).toString()
-        }.getOrNull()
-
-        if (decoded != null) {
-            return decoded
-        }
+private fun hasPrefix(bytes: ByteArray, prefix: ByteArray): Boolean {
+    if (bytes.size < prefix.size) {
+        return false
     }
 
-    return String(bytes, Charsets.UTF_8)
+    return prefix.indices.all { index ->
+        bytes[index] == prefix[index]
+    }
 }
 
 private fun detectUtf16WithoutBom(bytes: ByteArray): String? {
@@ -349,16 +334,6 @@ private fun detectUtf16WithoutBom(bytes: ByteArray): String? {
         evenZeroRatio > 0.3f && oddZeroRatio < 0.1f -> "UTF-16BE"
         else -> null
     }
-}
-
-private fun decodeWithCharset(
-    bytes: ByteArray,
-    offset: Int,
-    charsetName: String
-): String {
-    return Charset.forName(charsetName)
-        .decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset))
-        .toString()
 }
 
 private fun decodeStrictly(
