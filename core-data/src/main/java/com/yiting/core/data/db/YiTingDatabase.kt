@@ -28,13 +28,15 @@ abstract class YiTingDatabase : RoomDatabase() {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
-                    """CREATE TABLE IF NOT EXISTS `reading_progress` (
+                    """
+                    CREATE TABLE IF NOT EXISTS `reading_progress` (
                         `documentUri` TEXT NOT NULL,
                         `title` TEXT NOT NULL,
                         `characterOffset` INTEGER NOT NULL,
                         `updatedAtMs` INTEGER NOT NULL,
                         PRIMARY KEY(`documentUri`)
-                    )""".trimIndent()
+                    )
+                    """.trimIndent()
                 )
             }
         }
