@@ -37,6 +37,6 @@ data class FavoriteEntity(
 data class ReadingProgressEntity(
     @PrimaryKey val documentUri: String,
     val title: String,
-    val characterOffset: Int,
+    val scrollFraction: Float,
     val updatedAtMs: Long
 )
