@@ -10,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,16 +21,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: Run unit tests and Android lint
-        run: gradle test lint
-
-      - name: Build debug APK
-        run: gradle assembleDebug
+      - name: Run tests, lint, and build
+        run: gradle test lint assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
