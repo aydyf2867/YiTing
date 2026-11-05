@@ -24,6 +24,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ibm.icu.text.CharsetDetector
@@ -53,13 +55,13 @@ import java.nio.ByteBuffer
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 
-private const val MAX_TXT_SIZE = 10 * 1024 * 1024
+private const val MAX_TXT_SIZE_BYTES = 10 * 1024 * 1024
 
 private data class OpenBook(
     val uri: Uri,
     val title: String,
     val text: String,
-    val savedCharacterOffset: Int
+    val savedScrollFraction: Float
 )
 
 @OptIn(FlowPreview::class)
@@ -73,14 +75,22 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val readerScrollState = rememberScrollState()
+    val homeScrollState = rememberScrollState()
+
     var book by remember { mutableStateOf<OpenBook?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    val scrollState = rememberScrollState()
+    var isLoading by remember { mutableStateOf(false) }
     var restoredUri by remember { mutableStateOf<String?>(null) }
 
-    suspend fun openBook(uri: Uri, knownProgress: ReadingProgressEntity? = null) {
-        loading = true
+    suspend fun openBook(
+        uri: Uri,
+        knownProgress: ReadingProgressEntity? = null
+    ) {
+        isLoading = true
+
         try {
+            // OpenDocument grants a persistable read permission. Keep it so
+            // the document can be reopened from the recent-reading list.
             runCatching {
                 context.contentResolver.takePersistableUriPermission(
                     uri,
@@ -88,272 +98,346 @@ fun HomeScreen(
                 )
             }
 
-            val result = withContext(Dispatchers.IO) {
-                val name = queryDisplayName(context, uri)
-                val bytes = context.contentResolver.openInputStream(uri)?.use {
-                    readLimited(it, MAX_TXT_SIZE)
-                } ?: error("无法打开文件")
+            val loadedBook = withContext(Dispatchers.IO) {
+                val title = queryDisplayName(context, uri)
+                val bytes = context.contentResolver
+                    .openInputStream(uri)
+                    ?.use { input -> readLimited(input, MAX_TXT_SIZE_BYTES) }
+                    ?: error("无法打开文件")
 
-                val text = decodeText(bytes)
+                val text = decodeTxt(bytes)
                 val progress = knownProgress ?: loadReadingProgress(uri.toString())
+
                 OpenBook(
                     uri = uri,
-                    title = name,
+                    title = title,
                     text = text,
-                    savedCharacterOffset = progress?.characterOffset ?: 0
+                    savedScrollFraction =
+                        (progress?.scrollFraction ?: 0f).coerceIn(0f, 1f)
                 )
             }
 
             restoredUri = null
-            scrollState.scrollTo(0)
-            book = result
+            readerScrollState.scrollTo(0)
+            book = loadedBook
         } catch (_: Exception) {
             Toast.makeText(
                 context,
-                "读取失败：请确认文件可访问且不超过 10 MB",
+                "读取失败：请确认文件仍可访问，且小于 10 MB",
                 Toast.LENGTH_LONG
             ).show()
         } finally {
-            loading = false
+            isLoading = false
         }
     }
 
-    val picker = rememberLauncherForActivityResult(
+    val txtPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
-            scope.launch { openBook(uri) }
+            scope.launch {
+                openBook(uri)
+            }
         }
     }
 
-    LaunchedEffect(book?.uri?.toString(), scrollState.maxValue) {
-        val current = book ?: return@LaunchedEffect
-        val key = current.uri.toString()
+    val currentBook = book
 
-        if (restoredUri != key && (scrollState.maxValue > 0 || current.text.isEmpty())) {
-            val fraction = if (current.text.isNotEmpty()) {
-                (current.savedCharacterOffset.toFloat() / current.text.length).coerceIn(0f, 1f)
-            } else 0f
+    // Restore after Compose has measured the text and calculated scroll range.
+    LaunchedEffect(currentBook?.uri?.toString(), readerScrollState.maxValue) {
+        val current = currentBook ?: return@LaunchedEffect
+        val uriKey = current.uri.toString()
 
-            scrollState.scrollTo((scrollState.maxValue * fraction).toInt())
-            restoredUri = key
+        if (restoredUri != uriKey) {
+            val canRestore =
+                readerScrollState.maxValue > 0 ||
+                    current.savedScrollFraction <= 0f ||
+                    current.text.isEmpty()
+
+            if (canRestore) {
+                val target = (readerScrollState.maxValue *
+                    current.savedScrollFraction).toInt()
+
+                readerScrollState.scrollTo(target)
+                restoredUri = uriKey
+            }
         }
     }
 
-    LaunchedEffect(book?.uri?.toString()) {
-        val current = book ?: return@LaunchedEffect
+    // Save progress after scrolling stops. The stored fraction remains useful
+    // when the device size or font scale changes.
+    LaunchedEffect(currentBook?.uri?.toString()) {
+        val current = currentBook ?: return@LaunchedEffect
+        val uriKey = current.uri.toString()
 
         snapshotFlow {
-            if (restoredUri == current.uri.toString()) {
-                scrollState.value to scrollState.maxValue
+            if (restoredUri == uriKey) {
+                readerScrollState.value to readerScrollState.maxValue
             } else {
                 null
             }
         }
             .filterNotNull()
             .distinctUntilChanged()
-            .debounce(600)
-            .collect { (position, max) ->
-                val fraction = if (max > 0) {
-                    position.toFloat() / max
-                } else 0f
+            .debounce(700)
+            .collect { (scrollPosition, maxScroll) ->
+                val fraction = if (maxScroll > 0) {
+                    (scrollPosition.toFloat() / maxScroll).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
 
                 saveReadingProgress(
                     ReadingProgressEntity(
-                        documentUri = current.uri.toString(),
+                        documentUri = uriKey,
                         title = current.title,
-                        characterOffset = (current.text.length * fraction).toInt(),
+                        scrollFraction = fraction,
                         updatedAtMs = System.currentTimeMillis()
                     )
                 )
             }
     }
 
-    suspend fun closeBook() {
+    // Save when leaving the reader, including when switching tabs or the
+    // Activity is recreated. Saving twice is harmless because this is an upsert.
+    if (currentBook != null) {
+        DisposableEffect(currentBook.uri.toString()) {
+            onDispose {
+                val maxScroll = readerScrollState.maxValue
+                val fraction = if (maxScroll > 0) {
+                    (readerScrollState.value.toFloat() / maxScroll)
+                        .coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+
+                saveReadingProgress(
+                    ReadingProgressEntity(
+                        documentUri = currentBook.uri.toString(),
+                        title = currentBook.title,
+                        scrollFraction = fraction,
+                        updatedAtMs = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
+
+    fun closeBook() {
         val current = book ?: return
-        val fraction = if (scrollState.maxValue > 0) {
-            scrollState.value.toFloat() / scrollState.maxValue
-        } else 0f
+        val maxScroll = readerScrollState.maxValue
+        val fraction = if (maxScroll > 0) {
+            (readerScrollState.value.toFloat() / maxScroll).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
 
         saveReadingProgress(
             ReadingProgressEntity(
                 documentUri = current.uri.toString(),
                 title = current.title,
-                characterOffset = (current.text.length * fraction).toInt(),
+                scrollFraction = fraction,
                 updatedAtMs = System.currentTimeMillis()
             )
         )
         book = null
+        restoredUri = null
     }
 
-    BackHandler(enabled = book != null) {
-        scope.launch { closeBook() }
+    BackHandler(enabled = currentBook != null) {
+        closeBook()
     }
 
-    if (loading) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "正在读取文件，请稍候",
-                fontSize = 22.sp,
-                modifier = Modifier.padding(32.dp)
-            )
-        }
-    } else if (book != null) {
-        val current = book!!
-
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Button(onClick = { scope.launch { closeBook() } }) {
-                    Text("返回首页", fontSize = 20.sp)
-                }
-
-                Text(
-                    text = current.title,
-                    modifier = Modifier.padding(start = 12.dp),
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
-            }
-
+    when {
+        isLoading -> {
             Column(
-                modifier = Modifier
+                modifier = modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(bottom = 20.dp)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (current.text.isBlank()) {
-                    Text("这个文件没有文字内容", fontSize = 22.sp)
-                } else {
+                Text("正在读取文件，请稍候", fontSize = 22.sp)
+            }
+        }
+
+        currentBook != null -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Button(onClick = ::closeBook) {
+                        Text("返回首页", fontSize = 20.sp)
+                    }
+
                     Text(
-                        text = current.text,
+                        text = currentBook.title,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
                         fontSize = 22.sp,
-                        lineHeight = 34.sp
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(readerScrollState)
+                        .padding(bottom = 20.dp)
+                ) {
+                    if (currentBook.text.isBlank()) {
+                        Text("这个文件没有文字内容", fontSize = 22.sp)
+                    } else {
+                        Text(
+                            text = currentBook.text,
+                            fontSize = 22.sp,
+                            lineHeight = 34.sp
+                        )
+                    }
                 }
             }
         }
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-        ) {
-            Text(
-                text = "颐听",
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 24.dp, bottom = 4.dp)
-            )
 
-            Text(
-                text = "听戏 · 听书 · 看书",
-                fontSize = 20.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text("最近在听", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-
-            if (recentPlays.isEmpty()) {
+        else -> {
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .verticalScroll(homeScrollState)
+                    .padding(horizontal = 20.dp)
+            ) {
                 Text(
-                    text = "还没有播放记录。添加本地内容后，会在这里看到最近播放。",
+                    text = "颐听",
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 24.dp, bottom = 4.dp)
+                )
+
+                Text(
+                    text = "听戏 · 听书 · 看书",
                     fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 24.dp)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-            } else {
-                recentPlays.forEach { record ->
-                    YiListItem(
-                        title = record.title,
-                        subtitle = "${formatTime(record.positionMs)} / ${formatTime(record.durationMs)}"
-                    ) {
-                        Toast.makeText(context, "播放功能将在 T03 实现", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
 
-            if (readingProgress.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("最近阅读", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(24.dp))
 
-                readingProgress.take(5).forEach { progress ->
-                    YiListItem(
-                        title = progress.title,
-                        subtitle = "继续阅读"
-                    ) {
-                        scope.launch {
-                            openBook(
-                                Uri.parse(progress.documentUri),
-                                progress
-                            )
-                        }
-                    }
-                }
-            }
+                Text("最近在听", fontSize = 28.sp, fontWeight = FontWeight.Bold)
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        picker.launch(
-                            arrayOf(
-                                "text/plain",
-                                "text/*",
-                                "application/octet-stream",
-                                "application/x-txt"
-                            )
-                        )
-                    },
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(Modifier.padding(20.dp)) {
+                if (recentPlays.isEmpty()) {
                     Text(
-                        text = "看书",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "选择 TXT 文件开始阅读",
+                        text = "先去添加一些戏曲或评书吧",
                         fontSize = 20.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 24.dp)
                     )
+                } else {
+                    recentPlays.forEach { record ->
+                        YiListItem(
+                            title = record.title,
+                            subtitle = "${formatTime(record.positionMs)} / " +
+                                formatTime(record.durationMs),
+                            onClick = {
+                                Toast.makeText(
+                                    context,
+                                    "播放功能将在 T03 实现",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                if (readingProgress.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("最近阅读", fontSize = 28.sp, fontWeight = FontWeight.Bold)
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(Modifier.padding(20.dp)) {
-                    Text("听广播", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("电台功能将在后续版本开放", fontSize = 20.sp)
+                    readingProgress.take(5).forEach { progress ->
+                        YiListItem(
+                            title = progress.title,
+                            subtitle = "继续阅读",
+                            onClick = {
+                                scope.launch {
+                                    openBook(
+                                        Uri.parse(progress.documentUri),
+                                        progress
+                                    )
+                                }
+                            }
+                        )
+                    }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(Modifier.height(20.dp))
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            txtPicker.launch(
+                                arrayOf(
+                                    "text/plain",
+                                    "text/*",
+                                    "application/octet-stream",
+                                    "application/x-txt"
+                                )
+                            )
+                        },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text(
+                            text = "看书",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "选择 TXT 文件开始阅读",
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            Toast.makeText(
+                                context,
+                                "广播功能将在后续版本开放",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text("听广播", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "广播功能将在后续版本开放",
+                            fontSize = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+            }
         }
     }
 }
@@ -373,31 +457,34 @@ private fun queryDisplayName(context: Context, uri: Uri): String {
             }
         }
     }
+
     return uri.lastPathSegment?.substringAfterLast('/') ?: "TXT 文档"
 }
 
-private fun readLimited(input: java.io.InputStream, limit: Int): ByteArray {
+private fun readLimited(
+    input: java.io.InputStream,
+    maxBytes: Int
+): ByteArray {
     val output = ByteArrayOutputStream()
-    val buffer = ByteArray(8192)
-    var countTotal = 0
+    val buffer = ByteArray(8 * 1024)
+    var totalBytes = 0
 
     while (true) {
         val count = input.read(buffer)
         if (count < 0) break
 
-        countTotal += count
-        require(countTotal <= limit) { "文件过大" }
-
+        totalBytes += count
+        require(totalBytes <= maxBytes) { "TXT 文件超过大小限制" }
         output.write(buffer, 0, count)
     }
 
     return output.toByteArray()
 }
 
-private fun decodeText(bytes: ByteArray): String {
+private fun decodeTxt(bytes: ByteArray): String {
     if (bytes.isEmpty()) return ""
 
-    val boms = listOf(
+    val encodings = listOf(
         byteArrayOf(0x00, 0x00, 0xFE.toByte(), 0xFF.toByte()) to "UTF-32BE",
         byteArrayOf(0xFF.toByte(), 0xFE.toByte(), 0x00, 0x00) to "UTF-32LE",
         byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()) to "UTF-8",
@@ -405,22 +492,29 @@ private fun decodeText(bytes: ByteArray): String {
         byteArrayOf(0xFF.toByte(), 0xFE.toByte()) to "UTF-16LE"
     )
 
-    boms.firstOrNull { (bom, charset) ->
-        bytes.size >= bom.size &&
-            bom.indices.all { bytes[it] == bom[it] }
-    }?.let { (bom, charset) ->
-        return String(bytes, bom.size, bytes.size - bom.size, Charset.forName(charset))
+    for ((bom, charsetName) in encodings) {
+        if (bytes.size >= bom.size && bom.indices.all { bytes[it] == bom[it] }) {
+            return String(
+                bytes,
+                bom.size,
+                bytes.size - bom.size,
+                Charset.forName(charsetName)
+            )
+        }
     }
 
-    decodeStrict(bytes, Charsets.UTF_8)?.let { return it }
+    decodeStrictly(bytes, Charsets.UTF_8)?.let { return it }
 
-    return runCatching {
-        CharsetDetector().setText(bytes).detect()?.getString()
+    val detectedText = runCatching {
+        val detector = CharsetDetector()
+        detector.setText(bytes)
+        detector.detect()?.getString()
     }.getOrNull()
-        ?: String(bytes, Charsets.UTF_8)
+
+    return detectedText ?: String(bytes, Charsets.UTF_8)
 }
 
-private fun decodeStrict(bytes: ByteArray, charset: Charset): String? =
+private fun decodeStrictly(bytes: ByteArray, charset: Charset): String? =
     runCatching {
         charset.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT)
@@ -429,7 +523,7 @@ private fun decodeStrict(bytes: ByteArray, charset: Charset): String? =
             .toString()
     }.getOrNull()
 
-private fun formatTime(ms: Long): String {
-    val seconds = ms.coerceAtLeast(0) / 1000
-    return "%d:%02d".format(seconds / 60, seconds % 60)
+private fun formatTime(milliseconds: Long): String {
+    val totalSeconds = milliseconds.coerceAtLeast(0L) / 1_000L
+    return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }
