@@ -45,7 +45,7 @@ val YiTingTypography = Typography(
     bodyMedium = TextStyle(fontSize = 20.sp),
     bodySmall = TextStyle(fontSize = 20.sp),
     labelLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium),
-    labelMedium = TextSize = 18.sp,
+    labelMedium = TextStyle(fontSize = 18.sp),
     labelSmall = TextStyle(fontSize = 18.sp)
 )
 
