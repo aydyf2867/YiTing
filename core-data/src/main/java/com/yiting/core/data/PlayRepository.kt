@@ -1,13 +1,14 @@
 package com.yiting.core.data
 
+import androidx.room.withTransaction
 import com.yiting.core.data.db.FavoriteEntity
+import com.yiting.core.data.db.MediaItemEntity
 import com.yiting.core.data.db.PlayRecordEntity
 import com.yiting.core.data.db.ReadingProgressEntity
 import com.yiting.core.data.db.YiTingDatabase
 import kotlinx.coroutines.flow.Flow
 
 class PlayRepository(private val db: YiTingDatabase) {
-
     fun observeRecent(): Flow<List<PlayRecordEntity>> =
         db.playRecordDao().observeRecent()
 
@@ -17,17 +18,33 @@ class PlayRepository(private val db: YiTingDatabase) {
     fun observeReadingProgress(): Flow<List<ReadingProgressEntity>> =
         db.readingProgressDao().observeAll()
 
+    fun observeMediaItems(): Flow<List<MediaItemEntity>> =
+        db.mediaItemDao().observeAll()
+
     suspend fun getReadingProgress(documentUri: String): ReadingProgressEntity? =
         db.readingProgressDao().getByDocument(documentUri)
 
-    suspend fun saveReadingProgress(progress: ReadingProgressEntity) =
+    suspend fun saveReadingProgress(progress: ReadingProgressEntity) {
         db.readingProgressDao().upsert(progress)
+    }
+
+    suspend fun replaceLocalMediaItems(items: List<MediaItemEntity>) {
+        db.withTransaction {
+            db.mediaItemDao().deleteBySource("MediaStore")
+            db.mediaItemDao().upsertAll(items)
+        }
+    }
 
     suspend fun isFavorite(mediaId: String): Boolean =
         db.favoriteDao().getById(mediaId) != null
 
-    suspend fun toggleFavorite(mediaId: String, title: String, category: String) {
+    suspend fun toggleFavorite(
+        mediaId: String,
+        title: String,
+        category: String
+    ) {
         val existing = db.favoriteDao().getById(mediaId)
+
         if (existing == null) {
             db.favoriteDao().upsert(
                 FavoriteEntity(
