@@ -1,6 +1,7 @@
 package com.yiting.app.home
 
 import android.content.Context
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,7 +36,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ibm.icu.text.CharsetDetector
+import com.yiting.app.YiTingApplication
 import com.yiting.core.data.db.PlayRecordEntity
+import com.yiting.core.data.db.ReadingProgressEntity
 import com.yiting.core.ui.component.YiListItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,16 +53,33 @@ private const val MAX_TXT_SIZE_BYTES = 10 * 1024 * 1024
 @Composable
 fun HomeScreen(
     recentPlays: List<PlayRecordEntity>,
+    readingProgress: List<ReadingProgressEntity>,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var importedText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var currentUri by remember { mutableStateOf<Uri?>(null) }
+    var currentTitle by remember { mutableStateOf("未命名文档") }
 
-    // When the reader is open, Back returns to the home screen rather than exiting the app.
     BackHandler(enabled = importedText != null) {
+        if (importedText != null && currentUri != null) {
+            val savedOffset = importedText?.length ?: 0
+            coroutineScope.launch(Dispatchers.IO) {
+                val app = context.applicationContext as YiTingApplication
+                app.repository.saveReadingProgress(
+                    ReadingProgressEntity(
+                        documentUri = currentUri.toString(),
+                        title = currentTitle,
+                        characterOffset = savedOffset,
+                        updatedAtMs = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
         importedText = null
+        currentUri = null
     }
 
     val txtPicker = rememberLauncherForActivityResult(
@@ -67,6 +87,8 @@ fun HomeScreen(
     ) { uri ->
         if (uri != null) {
             isLoading = true
+            currentUri = uri
+            currentTitle = uri.lastPathSegment?.substringAfterLast('/') ?: "TXT阅读"
             coroutineScope.launch {
                 try {
                     val text = withContext(Dispatchers.IO) {
@@ -112,9 +134,27 @@ fun HomeScreen(
                         .padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(onClick = { importedText = null }) {
+                    Button(onClick = {
+                        if (currentUri != null) {
+                            val savedOffset = importedText?.length ?: 0
+                            coroutineScope.launch(Dispatchers.IO) {
+                                val app = context.applicationContext as YiTingApplication
+                                app.repository.saveReadingProgress(
+                                    ReadingProgressEntity(
+                                        documentUri = currentUri.toString(),
+                                        title = currentTitle,
+                                        characterOffset = savedOffset,
+                                        updatedAtMs = System.currentTimeMillis()
+                                    )
+                                )
+                            }
+                        }
+                        importedText = null
+                        currentUri = null
+                    }) {
                         Text("返回首页", fontSize = 20.sp)
                     }
+
                     Text(
                         text = "正在阅读",
                         modifier = Modifier.padding(start = 16.dp),
@@ -168,7 +208,7 @@ fun HomeScreen(
 
                 if (recentPlays.isEmpty()) {
                     Text(
-                        text = "还没有播放记录。添加本地内容后，会在这里看到最近播放。",
+                        text = "先去添加一些戏曲或评书吧",
                         fontSize = 20.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 24.dp)
@@ -179,19 +219,52 @@ fun HomeScreen(
                             title = record.title,
                             subtitle = formatProgress(record.positionMs, record.durationMs),
                             onClick = {
-                                showNotReadyMessage(context, "播放功能将在后续版本上线")
+                                Toast.makeText(
+                                    context,
+                                    "播放功能将在后续版本上线",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
+
+                if (readingProgress.isNotEmpty()) {
+                    Text(
+                        text = "最近阅读",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    readingProgress.take(5).forEach { progress ->
+                        YiListItem(
+                            title = progress.title,
+                            subtitle = "已读 ${progress.characterOffset} 字符",
+                            onClick = {
+                                Toast.makeText(
+                                    context,
+                                    "继续阅读会在后续版本实现",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
                             txtPicker.launch(
-                                arrayOf("text/plain", "text/*", "application/octet-stream", "application/x-txt")
+                                arrayOf(
+                                    "text/plain",
+                                    "text/*",
+                                    "application/octet-stream",
+                                    "application/x-txt"
+                                )
                             )
                         },
                     colors = CardDefaults.cardColors(
@@ -254,10 +327,6 @@ private fun readBounded(input: java.io.InputStream, maxBytes: Int): ByteArray {
         output.write(buffer, 0, count)
     }
     return output.toByteArray()
-}
-
-private fun showNotReadyMessage(context: Context, message: String) {
-    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 }
 
 private fun decodeTxt(bytes: ByteArray): String {

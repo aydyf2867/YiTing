@@ -2,6 +2,7 @@ package com.yiting.core.data
 
 import com.yiting.core.data.db.FavoriteEntity
 import com.yiting.core.data.db.PlayRecordEntity
+import com.yiting.core.data.db.ReadingProgressEntity
 import com.yiting.core.data.db.YiTingDatabase
 import kotlinx.coroutines.flow.Flow
 
@@ -13,8 +14,18 @@ class PlayRepository(private val db: YiTingDatabase) {
     fun observeFavorites(): Flow<List<FavoriteEntity>> =
         db.favoriteDao().observeAll()
 
+    fun observeReadingProgress(): Flow<List<ReadingProgressEntity>> =
+        db.readingProgressDao().observeAll()
+
     suspend fun isFavorite(mediaId: String): Boolean =
         db.favoriteDao().getById(mediaId) != null
+
+    suspend fun saveReadingProgress(progress: ReadingProgressEntity) {
+        db.readingProgressDao().upsert(progress)
+    }
+
+    suspend fun getReadingProgress(documentUri: String): ReadingProgressEntity? =
+        db.readingProgressDao().getByDocument(documentUri)
 
     suspend fun toggleFavorite(mediaId: String, title: String, category: String) {
         val existing = db.favoriteDao().getById(mediaId)

@@ -74,6 +74,7 @@ fun MainScreen(viewModel: HomeViewModel) {
         TabItem("听书", Icons.Filled.Headphones)
     )
     val recentPlays by viewModel.recentPlays.collectAsState()
+    val readingProgress by viewModel.readingProgress.collectAsState()
 
     Scaffold(
         bottomBar = {
@@ -95,7 +96,10 @@ fun MainScreen(viewModel: HomeViewModel) {
                 .padding(innerPadding)
         ) {
             when (selectedTab) {
-                0 -> HomeScreen(recentPlays = recentPlays)
+                0 -> HomeScreen(
+                    recentPlays = recentPlays,
+                    readingProgress = readingProgress
+                )
                 1 -> PlaceholderScreen("听戏功能正在准备中")
                 else -> PlaceholderScreen("听书功能正在准备中")
             }
