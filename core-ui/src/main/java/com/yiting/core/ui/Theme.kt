@@ -11,7 +11,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 颐听主色：鲜亮红
 val YiTingRed = Color(0xFFFA2D48)
 
 private val LightColors = lightColorScheme(
@@ -35,7 +34,6 @@ private val DarkColors = darkColorScheme(
     onSurface = Color(0xFFF0DEDF)
 )
 
-// 大字号排版：正文 20sp 起，标题 28sp 起（老人友好）
 val YiTingTypography = Typography(
     displayLarge = TextStyle(fontSize = 44.sp, fontWeight = FontWeight.Bold),
     displayMedium = TextStyle(fontSize = 36.sp, fontWeight = FontWeight.Bold),
@@ -47,7 +45,7 @@ val YiTingTypography = Typography(
     bodyMedium = TextStyle(fontSize = 20.sp),
     bodySmall = TextStyle(fontSize = 20.sp),
     labelLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Medium),
-    labelMedium = TextStyle(fontSize = 18.sp),
+    labelMedium = TextSize = 18.sp,
     labelSmall = TextStyle(fontSize = 18.sp)
 )
 
