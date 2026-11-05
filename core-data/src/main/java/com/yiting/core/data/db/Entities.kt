@@ -32,3 +32,11 @@ data class FavoriteEntity(
     val pinned: Boolean,
     val createdAtMs: Long
 )
+
+@Entity(tableName = "reading_progress")
+data class ReadingProgressEntity(
+    @PrimaryKey val documentUri: String,
+    val title: String,
+    val characterOffset: Int,
+    val updatedAtMs: Long
+)

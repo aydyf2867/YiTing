@@ -11,8 +11,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -60,7 +60,7 @@ fun MainScreen(viewModel: HomeViewModel) {
 
     BackHandler {
         val now = System.currentTimeMillis()
-        if (now - lastBackPressAt < 2000) {
+        if (now - lastBackPressAt < 2_000) {
             (context as? Activity)?.finish()
         } else {
             lastBackPressAt = now
@@ -69,12 +69,11 @@ fun MainScreen(viewModel: HomeViewModel) {
     }
 
     val tabs = listOf(
-        TabItem("听·广播", Icons.Filled.Radio),
-        TabItem("听书", Icons.Filled.Headphones),
-        TabItem("听戏", Icons.Filled.LibraryMusic)
+        TabItem("首页", Icons.Filled.Home),
+        TabItem("听戏", Icons.Filled.LibraryMusic),
+        TabItem("听书", Icons.Filled.Headphones)
     )
-
-    val recentPlays = viewModel.recentPlays.collectAsState().value
+    val recentPlays by viewModel.recentPlays.collectAsState()
 
     Scaffold(
         bottomBar = {
@@ -84,7 +83,7 @@ fun MainScreen(viewModel: HomeViewModel) {
                         selected = selectedTab == index,
                         onClick = { selectedTab = index },
                         icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, fontSize = 16.sp) }
+                        label = { Text(tab.label, fontSize = 20.sp) }
                     )
                 }
             }
@@ -97,8 +96,8 @@ fun MainScreen(viewModel: HomeViewModel) {
         ) {
             when (selectedTab) {
                 0 -> HomeScreen(recentPlays = recentPlays)
-                1 -> PlaceholderScreen("听书 · 内容即将上线")
-                else -> PlaceholderScreen("听戏 · 内容即将上线")
+                1 -> PlaceholderScreen("听戏功能正在准备中")
+                else -> PlaceholderScreen("听书功能正在准备中")
             }
         }
     }

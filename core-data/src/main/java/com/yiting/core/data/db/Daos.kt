@@ -52,3 +52,18 @@ interface FavoriteDao {
     @Query("DELETE FROM favorites")
     suspend fun clear()
 }
+
+@Dao
+interface ReadingProgressDao {
+    @Upsert
+    suspend fun upsert(progress: ReadingProgressEntity)
+
+    @Query("SELECT * FROM reading_progress WHERE documentUri = :documentUri")
+    suspend fun getByDocument(documentUri: String): ReadingProgressEntity?
+
+    @Query("SELECT * FROM reading_progress ORDER BY updatedAtMs DESC")
+    fun observeAll(): Flow<List<ReadingProgressEntity>>
+
+    @Query("DELETE FROM reading_progress WHERE documentUri = :documentUri")
+    suspend fun delete(documentUri: String)
+}
